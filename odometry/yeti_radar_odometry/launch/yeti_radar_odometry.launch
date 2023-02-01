@@ -1,7 +1,7 @@
 <launch>
     
     <!-- use your path -->
-    <param name="seq_dir" type="string" value="USE_YOUR_PATH" />
+    <param name="seq_dir" type="string" value="/home/zotac/Documents/MulranDataset/Riverside01/" />
     
     <node pkg="yeti" type="yetiOdom" name="yetiOdom" output="screen" />
 

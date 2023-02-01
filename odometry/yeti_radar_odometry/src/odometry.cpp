@@ -248,7 +248,7 @@ int main(int argc, char *argv[])
 
         // pub
         nav_msgs::Odometry odom;
-        odom.header.frame_id = "/camera_init";
+        odom.header.frame_id = "camera_init";
         odom.child_frame_id = "/yeti_odom"; 
         // odom.header.stamp = ros::Time().fromSec( currOdomTimeSec );
         odom.header.stamp = currOdomROSTime;
@@ -270,7 +270,7 @@ int main(int argc, char *argv[])
         }
         sensor_msgs::PointCloud2 laserCloudLocalMsg;
         pcl::toROSMsg(*laserCloudLocal, laserCloudLocalMsg);
-        laserCloudLocalMsg.header.frame_id = "/camera_init";
+        laserCloudLocalMsg.header.frame_id = "camera_init";
         // laserCloudLocalMsg.header.stamp = ros::Time().fromSec (currOdomTimeSec );
         laserCloudLocalMsg.header.stamp = currOdomROSTime;
         pubLaserCloudLocal.publish(laserCloudLocalMsg);
@@ -289,7 +289,7 @@ int main(int argc, char *argv[])
         }
         sensor_msgs::PointCloud2 laserCloudGlobalMsg;
         pcl::toROSMsg(*laserCloudGlobal, laserCloudGlobalMsg);
-        laserCloudGlobalMsg.header.frame_id = "/camera_init";
+        laserCloudGlobalMsg.header.frame_id = "camera_init";
         // laserCloudGlobalMsg.header.stamp = ros::Time().fromSec (currOdomTimeSec );
         laserCloudGlobalMsg.header.stamp = currOdomROSTime;
         pubLaserCloudGlobal.publish(laserCloudGlobalMsg);
