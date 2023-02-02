@@ -1,7 +1,8 @@
 project(yeti)
 cmake_minimum_required(VERSION 3.1)
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -W -Wno-unused-parameter -O2")
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -g -W -Wno-unused-parameter -O2 -march=native")
 
 find_package(OpenMP REQUIRED)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
@@ -18,7 +19,7 @@ find_package(PkgConfig)
 
 find_package(PythonLibs REQUIRED)
 
-find_package(PCL REQUIRED)
+find_package(PCL REQUIRED PATHS /home/zotac/Library/pcl-pcl-1.13.0/install NO_DEFAULT_PATH)
 
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs

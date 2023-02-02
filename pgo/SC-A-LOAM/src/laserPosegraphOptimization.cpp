@@ -119,7 +119,8 @@ double recentOptimizedY = 0.0;
 ros::Publisher pubMapAftPGO, pubOdomAftPGO, pubPathAftPGO;
 ros::Publisher pubLoopScanLocal, pubLoopSubmapLocal;
 ros::Publisher pubOdomRepubVerifier;
-
+std::ofstream ofs_tum;
+int prev_keyframe = 0;
 
 void laserOdometryHandler(const nav_msgs::Odometry::ConstPtr &_laserOdometry)
 {
@@ -263,6 +264,7 @@ void pubPath( void )
     q.setZ(odomAftPGO.pose.pose.orientation.z);
     transform.setRotation(q);
     br.sendTransform(tf::StampedTransform(transform, odomAftPGO.header.stamp, "camera_init", "/aft_pgo"));
+    
 } // pubPath
 
 void updatePoses(void)
@@ -546,6 +548,22 @@ void process_pg()
         // scan context detector is running in another thread (in constant Hz, e.g., 1 Hz)
         // pub path and point cloud in another thread
 
+        // pg opt result
+        if(keyframePosesUpdated.size() > prev_keyframe){
+            ofs_tum.open("/home/zotac/Documents/MulranDataset/Riverside01/sensor_data/radar/pgo_result_tum_cen2019.csv", std::ios::out);
+            for (int node_idx=0; node_idx < int(keyframePosesUpdated.size()) - 1; node_idx++){
+                const Pose6D& pose_est = keyframePosesUpdated.at(node_idx);
+                auto orientation = tf::createQuaternionMsgFromRollPitchYaw(pose_est.roll, pose_est.pitch, pose_est.yaw);
+                ofs_tum << std::fixed << keyframeTimes.at(node_idx) << " ";
+                ofs_tum << pose_est.y << " " << pose_est.x << " " << pose_est.z << " ";
+                ofs_tum << orientation.x << " " << orientation.y << " "
+                        << orientation.z << " " << orientation.w << "\n";
+                ofs_tum.flush();
+            }
+            ofs_tum.close();
+            prev_keyframe = keyframePosesUpdated.size();
+        }
+        
         // wait (must required for running the while loop)
         std::chrono::milliseconds dura(2);
         std::this_thread::sleep_for(dura);

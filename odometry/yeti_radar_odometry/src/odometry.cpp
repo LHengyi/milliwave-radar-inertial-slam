@@ -244,7 +244,9 @@ int main(int argc, char *argv[])
 
         // double currOdomTimeSec = double(time2) / 100000000.0;
         // std::cout << " currOdomTimeSec " << currOdomTimeSec << std::endl;
-        auto currOdomROSTime = ros::Time::now();
+        // auto currOdomROSTime = ros::Time::now();
+        //should use dataset time instead of ros time now
+        auto currOdomROSTime = ros::Time().fromSec(time1/1000000000.0);
 
         // pub
         nav_msgs::Odometry odom;
@@ -258,6 +260,7 @@ int main(int argc, char *argv[])
         odom.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(0.0, 0.0, currYaw);
         pubOdom.publish(odom); // last pose 
 
+        
         float contant_z_nonzero = 1.0; // for scan context (in this naive case, we can say we will use binary scan context).
         pcl::PointCloud<PointType>::Ptr laserCloudLocal(new pcl::PointCloud<PointType>());
         for (uint pt_idx = 0; pt_idx < cart_feature_cloud.cols(); ++pt_idx) {

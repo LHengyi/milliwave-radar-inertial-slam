@@ -19,12 +19,12 @@ find_package(catkin REQUIRED COMPONENTS
   tf
 )
 
-#find_package(Eigen3 REQUIRED)
-find_package(PCL REQUIRED)
+find_package(Eigen3 REQUIRED PATHS /home/zotac/Library/eigen-3.3.9/install NO_DEFAULT_PATH)
+find_package(PCL REQUIRED PATHS /home/zotac/Library/pcl-pcl-1.13.0/install NO_DEFAULT_PATH)
 find_package(OpenCV REQUIRED)
 
 find_package(OpenMP REQUIRED)
-find_package(GTSAM REQUIRED QUIET)
+find_package(GTSAM REQUIRED QUIET PATHS /home/zotac/Library/gtsam-4.1.1/install NO_DEFAULT_PATH)
 
 include_directories(
   include
