@@ -6,6 +6,11 @@
 #include <iostream>
 #include <string>
 #include <optional>
+#include <iostream>
+#include <fstream>
+#include <list>
+#include <sstream>
+#include <algorithm>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -35,6 +40,7 @@
 
 #include <eigen3/Eigen/Dense>
 
+
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/nonlinear/Marginals.h>
@@ -48,6 +54,8 @@
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/nonlinear/ISAM2.h>
+#include <gtsam/navigation/ImuFactor.h>
+#include <gtsam/navigation/CombinedImuFactor.h>
 
 #include "aloam_velodyne/common.h"
 #include "aloam_velodyne/tic_toc.h"
@@ -55,6 +63,8 @@
 #include "scancontext/Scancontext.h"
 
 using namespace gtsam;
+using symbol_shorthand::B;  // Bias  (ax,ay,az,gx,gy,gz)
+using symbol_shorthand::V; // Velocity
 
 using std::cout;
 using std::endl;
@@ -80,6 +90,8 @@ std::vector<pcl::PointCloud<PointType>::Ptr> keyframeLaserClouds;
 std::vector<Pose6D> keyframePoses;
 std::vector<Pose6D> keyframePosesUpdated;
 std::vector<double> keyframeTimes;
+std::vector<gtsam::Vector3> keyframeVelocity;
+std::vector<gtsam::imuBias::ConstantBias> keyframeBias;
 
 gtsam::NonlinearFactorGraph gtSAMgraph;
 bool gtSAMgraphMade = false;
@@ -94,6 +106,9 @@ noiseModel::Diagonal::shared_ptr priorNoise;
 noiseModel::Diagonal::shared_ptr odomNoise;
 noiseModel::Base::shared_ptr robustLoopNoise;
 noiseModel::Base::shared_ptr robustGPSNoise;
+noiseModel::Isotropic::shared_ptr biasNoise;
+noiseModel::Isotropic::shared_ptr velocityNoise;
+std::shared_ptr<PreintegrationType> preintegrated;
 
 pcl::VoxelGrid<PointType> downSizeFilterScancontext;
 SCManager scManager;
@@ -121,6 +136,43 @@ ros::Publisher pubLoopScanLocal, pubLoopSubmapLocal;
 ros::Publisher pubOdomRepubVerifier;
 std::ofstream ofs_tum;
 int prev_keyframe = 0;
+
+std::ifstream imu_fd;
+std::list<gtsam::Vector7> imu_list;
+
+boost::shared_ptr<gtsam::PreintegratedCombinedMeasurements::Params> imuParams() {
+  // We use the sensor specs to build the noise model for the IMU factor.
+  // just a guess of typical imu noises
+  double accel_noise_sigma = 6e-4;
+  double gyro_noise_sigma =  0.1;
+  double accel_bias_rw_sigma = 2e-6;
+  double gyro_bias_rw_sigma = 5e-5;
+  Matrix33 measured_acc_cov = I_3x3 * pow(accel_noise_sigma, 2);
+  Matrix33 measured_omega_cov = I_3x3 * pow(gyro_noise_sigma, 2);
+  Matrix33 integration_error_cov =
+      I_3x3 * 1e-8;  // error committed in integrating position from velocities
+  Matrix33 bias_acc_cov = I_3x3 * pow(accel_bias_rw_sigma, 2);
+  Matrix33 bias_omega_cov = I_3x3 * pow(gyro_bias_rw_sigma, 2);
+  Matrix66 bias_acc_omega_int =
+      I_6x6 * 1e-5;  // error in the bias used for preintegration
+
+  auto p = gtsam::PreintegratedCombinedMeasurements::Params::MakeSharedU(); // use default g
+  // PreintegrationBase params:
+  p->accelerometerCovariance =
+      measured_acc_cov;  // acc white noise in continuous
+  p->integrationCovariance =
+      integration_error_cov;  // integration uncertainty continuous
+  // should be using 2nd order integration
+  // PreintegratedRotation params:
+  p->gyroscopeCovariance =
+      measured_omega_cov;  // gyro white noise in continuous
+  // PreintegrationCombinedMeasurements params:
+  p->biasAccCovariance = bias_acc_cov;      // acc bias in continuous
+  p->biasOmegaCovariance = bias_omega_cov;  // gyro bias in continuous
+  p->biasAccOmegaInt = bias_acc_omega_int;
+
+  return p;
+}
 
 void laserOdometryHandler(const nav_msgs::Odometry::ConstPtr &_laserOdometry)
 {
@@ -156,7 +208,7 @@ void initNoises( void )
     odomNoiseVector6 << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4;
     odomNoise = noiseModel::Diagonal::Variances(odomNoiseVector6);
 
-    double loopNoiseScore = 0.5; // constant is ok...
+    double loopNoiseScore = 0.1; // constant is ok...
     gtsam::Vector robustNoiseVector6(6); // gtsam::Pose3 factor has 6 elements (6D)
     robustNoiseVector6 << loopNoiseScore, loopNoiseScore, loopNoiseScore, loopNoiseScore, loopNoiseScore, loopNoiseScore;
     robustLoopNoise = gtsam::noiseModel::Robust::Create(
@@ -170,6 +222,14 @@ void initNoises( void )
     robustGPSNoise = gtsam::noiseModel::Robust::Create(
                     gtsam::noiseModel::mEstimator::Cauchy::Create(1), // optional: replacing Cauchy by DCS or GemanMcClure is okay but Cauchy is empirically good.
                     gtsam::noiseModel::Diagonal::Variances(robustNoiseVector3) );
+    
+    velocityNoise = gtsam::noiseModel::Isotropic::Sigma(3,0.1);
+    biasNoise = gtsam::noiseModel::Isotropic::Sigma(6,1e-3);
+
+    imuBias::ConstantBias prior_imu_bias; // assuming zero bias
+    auto p = imuParams();
+    preintegrated =
+        std::make_shared<PreintegratedCombinedMeasurements>(p, prior_imu_bias);
 
 } // initNoises
 
@@ -270,7 +330,7 @@ void pubPath( void )
 void updatePoses(void)
 {
     mKF.lock(); 
-    for (int node_idx=0; node_idx < int(isamCurrentEstimate.size()); node_idx++)
+    for (int node_idx=0; node_idx < int(isamCurrentEstimate.size()/3); node_idx++)
     {
         Pose6D& p =keyframePosesUpdated[node_idx];
         p.x = isamCurrentEstimate.at<gtsam::Pose3>(node_idx).translation().x();
@@ -283,23 +343,34 @@ void updatePoses(void)
     mKF.unlock();
 
     mtxRecentPose.lock();
-    const gtsam::Pose3& lastOptimizedPose = isamCurrentEstimate.at<gtsam::Pose3>(int(isamCurrentEstimate.size())-1);
+    const gtsam::Pose3& lastOptimizedPose = isamCurrentEstimate.at<gtsam::Pose3>(int(isamCurrentEstimate.size()/3)-1);
     recentOptimizedX = lastOptimizedPose.translation().x();
     recentOptimizedY = lastOptimizedPose.translation().y();
     mtxRecentPose.unlock();
 } // updatePoses
 
+void updateStates(void){
+    updatePoses();
+    for (int node_idx=0; node_idx < int(isamCurrentEstimate.size()/3); node_idx++)
+    {
+        keyframeBias[node_idx] = isamCurrentEstimate.at<gtsam::imuBias::ConstantBias>(B(node_idx));
+        keyframeVelocity[node_idx] = isamCurrentEstimate.at<gtsam::Vector3>(V(node_idx));
+    }
+}
+
 void runISAM2opt(void)
 {
     // called when a variable added 
     isam->update(gtSAMgraph, initialEstimate);
-    isam->update();
+    // isam->update();
     
     gtSAMgraph.resize(0);
     initialEstimate.clear();
 
     isamCurrentEstimate = isam->calculateEstimate();
-    updatePoses();
+    // updatePoses();
+    updateStates();
+    preintegrated->resetIntegrationAndSetBias(keyframeBias.back());
 }
 
 pcl::PointCloud<PointType>::Ptr transformPointCloud(pcl::PointCloud<PointType>::Ptr cloudIn, gtsam::Pose3 transformIn)
@@ -489,6 +560,8 @@ void process_pg()
             keyframePoses.push_back(pose_curr);
             keyframePosesUpdated.push_back(pose_curr); // init
             keyframeTimes.push_back(timeLaserOdometry);
+            keyframeVelocity.push_back(gtsam::Vector3());
+            keyframeBias.push_back(gtsam::imuBias::ConstantBias());
 
             scManager.makeAndSaveScancontextAndKeys(*thisKeyFrameDS);
 
@@ -503,8 +576,29 @@ void process_pg()
                 mtxPosegraph.lock();
                 {
                     // prior factor 
+                    gtsam::Vector6 prior_imu_bias;
+                    prior_imu_bias << 0.0, 0.0, 0.0, 0.0,0.0,0.0;
+                    gtsam::Vector3 prior_velocity(0,0,0);
                     gtSAMgraph.add(gtsam::PriorFactor<gtsam::Pose3>(init_node_idx, poseOrigin, priorNoise));
+                    gtSAMgraph.addPrior(B(init_node_idx),gtsam::imuBias::ConstantBias(prior_imu_bias),biasNoise);
+                    gtSAMgraph.addPrior(V(init_node_idx),gtsam::Vector3(0,0,0),velocityNoise);
                     initialEstimate.insert(init_node_idx, poseOrigin);
+                    initialEstimate.insert(B(init_node_idx),gtsam::imuBias::ConstantBias(prior_imu_bias));
+                    initialEstimate.insert(V(init_node_idx),prior_velocity);
+                    // Debug
+                    gtsam::GraphvizFormatting config;
+                    config.mergeSimilarFactors = false;
+                    config.connectKeysToFactor = true;
+                    config.plotFactorPoints = true;
+                    std::ostringstream ss;
+                    ss << "/home/zotac/Documents/MulranDataset/Riverside01/gtsam/isam_graph_";
+                    ss << init_node_idx << ".dot";
+                    std::string file_name = ss.str();
+                    gtSAMgraph.saveGraph(file_name, gtsam::Values() ,config);
+                    // gtsam::GaussianFactorGraph::shared_ptr gaussian = gtSAMgraph.linearize(initialEstimate);
+                    // std::cout << "Iteration: " << init_node_idx << std::endl;
+                    // Eigen::IOFormat heavyFmt(6,0,", ", ";\n","[","]","[","]");
+                    // std::cout << gaussian->augmentedJacobian().format(heavyFmt) << std::endl; 
                     runISAM2opt();          
                 }   
                 mtxPosegraph.unlock();
@@ -518,10 +612,60 @@ void process_pg()
                 gtsam::Pose3 poseFrom = Pose6DtoGTSAMPose3(keyframePoses.at(prev_node_idx));
                 gtsam::Pose3 poseTo = Pose6DtoGTSAMPose3(keyframePoses.at(curr_node_idx));
 
+                // integrate IMU between two frame
+                std::string imu_line;
+                double prev_time = keyframeTimes.at(prev_node_idx);
+                double curr_time = keyframeTimes.at(curr_node_idx);
+                if(imu_fd.is_open()){
+                    while(getline(imu_fd, imu_line)){
+                        std::replace(imu_line.begin(),imu_line.end(),',',' ');
+                        std::stringstream ss(imu_line);
+                        int64_t imu_time;
+                        double q_x,q_y,q_z,q_w,x,y,z,g_x,g_y,g_z,a_x,a_y,a_z,m_x,m_y,m_z;
+                        ss >> imu_time >> q_x >> q_y >> q_z >> q_w >> x >> y >> z >> g_x
+                           >> g_y >> g_z >> a_x >> a_y >> a_z >> m_x >> m_y >> m_z;
+                        double imu_stamp = imu_time / 1000000000.0;
+                        gtsam::Vector7 imu_data;
+                        imu_data << imu_stamp, a_x, a_y, a_z, g_x, g_y, g_z;
+                        imu_list.push_back(imu_data);
+                        if(imu_stamp >= curr_time)
+                            break;
+                    }
+                }
+                while(!imu_list.empty()){
+                    auto imu_data = imu_list.front();
+                    if(imu_data(0) < prev_time){
+                        imu_list.pop_front();
+                        continue;
+                    }
+                        
+                    if(imu_data(0) > curr_time)
+                        break;
+                    // integrate imu data
+                    preintegrated->integrateMeasurement(imu_data.segment(1,3), imu_data.tail<3>(), 0.01); // TO DO: get dt 100 hz
+                    imu_list.pop_front();
+                }
+                preintegrated->print();
+                const gtsam::PreintegratedCombinedMeasurements& preint_imu = dynamic_cast<const gtsam::PreintegratedCombinedMeasurements&>(*preintegrated);
+                gtsam::CombinedImuFactor imu_factor(prev_node_idx, V(prev_node_idx),
+                           curr_node_idx, V(curr_node_idx),
+                           B(prev_node_idx), B(curr_node_idx),preint_imu);
+
                 mtxPosegraph.lock();
                 {
                     // odom factor
                     gtSAMgraph.add(gtsam::BetweenFactor<gtsam::Pose3>(prev_node_idx, curr_node_idx, poseFrom.between(poseTo), odomNoise));
+                    
+                    
+                    // imu factor
+                    gtSAMgraph.add(imu_factor);
+                    gtsam::Vector6 prior_imu_bias;
+                    prior_imu_bias << 2e-6, 2e-6, 2e-6, 0.00004848138,0.00004848138,0.00004848138;
+                    gtSAMgraph.add(gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>(
+                        B(curr_node_idx - 1), B(curr_node_idx), gtsam::imuBias::ConstantBias(prior_imu_bias),
+                        biasNoise));
+                    //TO DO: add velocity factor, better alternatives?
+                    // gtSAMgraph.add(gtsam::BetweenFactor<gtsam::Vector3>(V(prev_node_idx),V(curr_node_idx),preintegrated->deltaVij(), velocityNoise));
 
                     // gps factor 
                     if(hasGPSforThisKF) {
@@ -532,13 +676,32 @@ void process_pg()
                         gtSAMgraph.add(gtsam::GPSFactor(curr_node_idx, gpsConstraint, robustGPSNoise));
                         cout << "GPS factor added at node " << curr_node_idx << endl;
                     }
-                    initialEstimate.insert(curr_node_idx, poseTo);                
+                    
+                    // TO DO: use previous state, should predict current state
+                    initialEstimate.insert(curr_node_idx, poseTo);    
+                    initialEstimate.insert(V(curr_node_idx), keyframeVelocity[curr_node_idx-1]);
+                    initialEstimate.insert(B(curr_node_idx), keyframeBias[curr_node_idx-1]);
+                    //Debug
+                    gtsam::GraphvizFormatting config;
+                    config.mergeSimilarFactors = false;
+                    config.connectKeysToFactor = true;
+                    config.plotFactorPoints = true;
+                    std::ostringstream ss;
+                    ss << "/home/zotac/Documents/MulranDataset/Riverside01/gtsam/isam_graph_";
+                    ss << curr_node_idx << ".dot";
+                    std::string file_name = ss.str();
+                    gtSAMgraph.saveGraph(file_name, gtsam::Values() ,config);
+                    // gtsam::GaussianFactorGraph::shared_ptr gaussian = gtSAMgraph.linearize(initialEstimate);
+                    // std::cout << "Iteration: " << curr_node_idx << std::endl;
+                    // Eigen::IOFormat heavyFmt(6,0,", ", ";\n","[","]","[","]");
+                    // std::cout << gaussian->augmentedJacobian().format(heavyFmt) << std::endl; 
                     runISAM2opt();
                 }
                 mtxPosegraph.unlock();
 
-                if(curr_node_idx % 5 == 0)
+                if(curr_node_idx % 5 == 0){
                     cout << "posegraph odom node " << curr_node_idx << " added." << endl;
+                }
             }
             // if want to print the current graph, use gtSAMgraph.print("\nFactor Graph:\n");
 
@@ -693,9 +856,12 @@ int main(int argc, char **argv)
 	nh.param<double>("keyframe_meter_gap", keyframeMeterGap, 2.0); // pose assignment every k frames 
 	nh.param<double>("sc_dist_thres", scDistThres, 0.2); // pose assignment every k frames 
 
+    imu_fd.open("/home/zotac/Documents/MulranDataset/Riverside01/sensor_data/xsens_imu.csv", std::ios::in);
+
     ISAM2Params parameters;
     parameters.relinearizeThreshold = 0.01;
     parameters.relinearizeSkip = 1;
+    parameters.factorization = gtsam::ISAM2Params::Factorization::QR;
     isam = new ISAM2(parameters);
     initNoises();
 

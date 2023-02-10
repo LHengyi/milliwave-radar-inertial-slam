@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(sc_pgo)
 
-set(CMAKE_BUILD_TYPE "Release")
-# set(CMAKE_CXX_FLAGS "-std=c++11")
+set(CMAKE_BUILD_TYPE Debug)
+# set(CMAKE_CXX_FLAGS "-std=c++20")
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -g -W -Wno-unused-parameter")
+set(CMAKE_CXX_FLAGS_RELEASE "-Wall -g")
 
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
@@ -17,6 +18,10 @@ find_package(catkin REQUIRED COMPONENTS
   image_transport
   cv_bridge
   tf
+)
+
+find_package(Boost REQUIRED COMPONENTS
+    program_options
 )
 
 find_package(Eigen3 REQUIRED PATHS /home/zotac/Library/eigen-3.3.9/install NO_DEFAULT_PATH)
@@ -32,6 +37,7 @@ include_directories(
 	${PCL_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${GTSAM_INCLUDE_DIR}
+  ${Boost_INCLUDE_DIRS}
 )
 
 catkin_package(
@@ -53,5 +59,12 @@ target_link_libraries(alaserPGO
   gtsam
 )
 
-
+add_executable(imuFactorTest
+  src/ImuFactorTest.cpp
+)
+target_link_libraries(imuFactorTest 
+  gtsam
+  ${Boost_LIBRARIES}
+  ${catkin_LIBRARIES} 
+)
 

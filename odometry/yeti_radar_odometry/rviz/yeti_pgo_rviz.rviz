@@ -4,11 +4,14 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /Global Options1
+        - /Status1
         - /yetiOdometry1
         - /yetiOdometry1/Shape1
         - /pgoPath1
         - /Grid1
         - /PointCloud22
+        - /Axes1
       Splitter Ratio: 0.5558823347091675
     Tree Height: 719
   - Class: rviz/Selection
@@ -169,11 +172,20 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Alpha: 1
+      Class: rviz/Axes
+      Enabled: true
+      Length: 10
+      Name: Axes
+      Radius: 2
+      Reference Frame: <Fixed Frame>
+      Show Trail: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
     Default Light: true
-    Fixed Frame: camera_init
+    Fixed Frame: map
     Frame Rate: 30
   Name: root
   Tools:
@@ -197,7 +209,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 1308.589599609375
+      Distance: 475.7191467285156
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -205,17 +217,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 406.4956359863281
-        Y: 108.14401245117188
-        Z: 6.235093593597412
+        X: -0.047245800495147705
+        Y: -4.962100982666016
+        Z: 11.870258331298828
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: -1.5297963619232178
+      Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
-      Yaw: 6.27858829498291
+      Yaw: 4.955454349517822
     Saved: ~
 Window Geometry:
   Displays:

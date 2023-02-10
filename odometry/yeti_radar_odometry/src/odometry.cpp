@@ -32,7 +32,7 @@ typedef pcl::PointXYZI PointType;
 
 ros::Publisher pubOdom;
 ros::Publisher pubLaserCloudLocal, pubLaserCloudGlobal;
-Eigen::MatrixXd currOdom;
+Eigen::MatrixXd Tw2b; // From base_link to world
 
 // modified for MulRan dataset batch evaluation 
 int main(int argc, char *argv[]) 
@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
     omp_set_num_threads(8);
 
 	pubOdom = nh.advertise<nav_msgs::Odometry>("/yeti_odom", 100);
-    currOdom = Eigen::MatrixXd::Identity(4, 4); // initial pose is I
+    Tw2b = Eigen::MatrixXd::Identity(4, 4); // initial pose is I
 
 	pubLaserCloudLocal = nh.advertise<sensor_msgs::PointCloud2>("/yeti_cloud_local", 100);
 	pubLaserCloudGlobal = nh.advertise<sensor_msgs::PointCloud2>("/yeti_cloud_global", 100);
@@ -196,9 +196,9 @@ int main(int argc, char *argv[])
         mdransac.correctForDoppler(false);
         srand(i);
         mdransac.computeModel();
-        Eigen::MatrixXd Tmd;
-        mdransac.getTransform(delta_t, Tmd);
-        Tmd = Tmd.inverse();
+        Eigen::MatrixXd Tmd_old2new;
+        mdransac.getTransform(delta_t, Tmd_old2new);
+        Eigen::MatrixXd Tmd_new2old = Tmd_old2new.inverse();
         // Eigen::VectorXd wbar;
         // mdransac.getMotion(wbar);
 
@@ -222,19 +222,19 @@ int main(int argc, char *argv[])
         // float yaw2 = -1 * asin(Tmd(0, 1));
         // float yaw3 = -1 * asin(Tmd2(0, 1));
         float yaw = asin(-1 * T(0, 1));
-        float yaw2 = asin(-1 * Tmd(0, 1));
+        float yaw2 = asin(-1 * Tmd_old2new(0, 1));
         float yaw3 = asin(-1 * Tmd2(0, 1));
 
         // Write estimated and ground truth transform to the csv file
         ofs << T(0, 2) << "," << T(1, 2) << "," << yaw << ",";
         // ofs << gtvec[0] << "," << gtvec[1] << "," << gtvec[5] << ",";
         ofs << 0.0 << "," << 0.0 << "," << 0.0 << ","; // dummy gt 
-        ofs << time1 << "," << time2 << "," << Tmd(0, 3) << "," << Tmd(1, 3) << "," <<  yaw2 << ",";
+        ofs << time1 << "," << time2 << "," << Tmd_old2new(0, 3) << "," << Tmd_old2new(1, 3) << "," <<  yaw2 << ",";
         ofs << Tmd2(0, 3) << "," << Tmd2(1, 3) << "," << yaw3 << "\n";
 
         // curuent state
-        currOdom = currOdom * Tmd;
-        Eigen::Matrix3d currOdomRot = currOdom.block(0,0,3,3);
+        Tw2b = Tw2b * Tmd_old2new;
+        Eigen::Matrix3d currOdomRot = Tw2b.block(0,0,3,3);
         Eigen::Vector3d currOdomEuler = currOdomRot.eulerAngles(0,1,2);
         // Eigen::Vector3d currEulerVec = currOdomRot.eulerAngles(2, 1, 0);
         // float currYaw = asin(-1 * currOdom(0, 1));
@@ -250,14 +250,18 @@ int main(int argc, char *argv[])
 
         // pub
         nav_msgs::Odometry odom;
-        odom.header.frame_id = "camera_init";
-        odom.child_frame_id = "/yeti_odom"; 
+        odom.header.frame_id = "map";
+        odom.child_frame_id = "base_link"; 
+        Eigen::MatrixXd Tb2w = Tw2b.inverse();
+        Eigen::Matrix3d rot_b2w = Tb2w.block(0,0,3,3);
+        Eigen::Vector3d euler_b2w = rot_b2w.eulerAngles(0,1,2);
+        double yaw_b2w = euler_b2w(2);
         // odom.header.stamp = ros::Time().fromSec( currOdomTimeSec );
         odom.header.stamp = currOdomROSTime;
-        odom.pose.pose.position.x = currOdom(0, 3);
-        odom.pose.pose.position.y = currOdom(1, 3);
-        odom.pose.pose.position.z = currOdom(2, 3);
-        odom.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(0.0, 0.0, currYaw);
+        odom.pose.pose.position.x = Tb2w(0, 3);
+        odom.pose.pose.position.y = Tb2w(1, 3);
+        odom.pose.pose.position.z = Tb2w(2, 3);
+        odom.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(0.0, 0.0, yaw_b2w);
         pubOdom.publish(odom); // last pose 
 
         
@@ -273,7 +277,7 @@ int main(int argc, char *argv[])
         }
         sensor_msgs::PointCloud2 laserCloudLocalMsg;
         pcl::toROSMsg(*laserCloudLocal, laserCloudLocalMsg);
-        laserCloudLocalMsg.header.frame_id = "camera_init";
+        laserCloudLocalMsg.header.frame_id = "base_link";
         // laserCloudLocalMsg.header.stamp = ros::Time().fromSec (currOdomTimeSec );
         laserCloudLocalMsg.header.stamp = currOdomROSTime;
         pubLaserCloudLocal.publish(laserCloudLocalMsg);
@@ -285,14 +289,14 @@ int main(int argc, char *argv[])
             auto local_x = cart_feature_cloud(0, pt_idx);
             auto local_y = cart_feature_cloud(1, pt_idx);
             auto local_z = cart_feature_cloud(2, pt_idx) + contant_z_nonzero;
-            feature_point_global.x = currOdom(0,0)*local_x + currOdom(0,1)*local_y + currOdom(0,2)*local_z + currOdom(0,3);
-            feature_point_global.y = currOdom(1,0)*local_x + currOdom(1,1)*local_y + currOdom(1,2)*local_z + currOdom(1,3);
-            feature_point_global.z = currOdom(2,0)*local_x + currOdom(2,1)*local_y + currOdom(2,2)*local_z + currOdom(2,3);
+            feature_point_global.x = Tw2b(0,0)*local_x + Tw2b(0,1)*local_y + Tw2b(0,2)*local_z + Tw2b(0,3);
+            feature_point_global.y = Tw2b(1,0)*local_x + Tw2b(1,1)*local_y + Tw2b(1,2)*local_z + Tw2b(1,3);
+            feature_point_global.z = Tw2b(2,0)*local_x + Tw2b(2,1)*local_y + Tw2b(2,2)*local_z + Tw2b(2,3);
             laserCloudGlobal->push_back(feature_point_global);
         }
         sensor_msgs::PointCloud2 laserCloudGlobalMsg;
         pcl::toROSMsg(*laserCloudGlobal, laserCloudGlobalMsg);
-        laserCloudGlobalMsg.header.frame_id = "camera_init";
+        laserCloudGlobalMsg.header.frame_id = "map";
         // laserCloudGlobalMsg.header.stamp = ros::Time().fromSec (currOdomTimeSec );
         laserCloudGlobalMsg.header.stamp = currOdomROSTime;
         pubLaserCloudGlobal.publish(laserCloudGlobalMsg);
