@@ -289,9 +289,9 @@ int main(int argc, char *argv[])
             auto local_x = cart_feature_cloud(0, pt_idx);
             auto local_y = cart_feature_cloud(1, pt_idx);
             auto local_z = cart_feature_cloud(2, pt_idx) + contant_z_nonzero;
-            feature_point_global.x = Tw2b(0,0)*local_x + Tw2b(0,1)*local_y + Tw2b(0,2)*local_z + Tw2b(0,3);
-            feature_point_global.y = Tw2b(1,0)*local_x + Tw2b(1,1)*local_y + Tw2b(1,2)*local_z + Tw2b(1,3);
-            feature_point_global.z = Tw2b(2,0)*local_x + Tw2b(2,1)*local_y + Tw2b(2,2)*local_z + Tw2b(2,3);
+            feature_point_global.x = Tb2w(0,0)*local_x + Tb2w(0,1)*local_y + Tb2w(0,2)*local_z + Tb2w(0,3);
+            feature_point_global.y = Tb2w(1,0)*local_x + Tb2w(1,1)*local_y + Tb2w(1,2)*local_z + Tb2w(1,3);
+            feature_point_global.z = Tb2w(2,0)*local_x + Tb2w(2,1)*local_y + Tb2w(2,2)*local_z + Tb2w(2,3);
             laserCloudGlobal->push_back(feature_point_global);
         }
         sensor_msgs::PointCloud2 laserCloudGlobalMsg;
