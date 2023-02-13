@@ -33,7 +33,7 @@ typedef pcl::PointXYZI PointType;
 ros::Publisher pubOdom;
 ros::Publisher pubLaserCloudLocal, pubLaserCloudGlobal;
 Eigen::MatrixXd Tw2b; // From base_link to world
-
+Eigen::MatrixXd Tb2w; // From world to base_link
 // modified for MulRan dataset batch evaluation 
 int main(int argc, char *argv[]) 
 {
@@ -44,6 +44,7 @@ int main(int argc, char *argv[])
 
 	pubOdom = nh.advertise<nav_msgs::Odometry>("/yeti_odom", 100);
     Tw2b = Eigen::MatrixXd::Identity(4, 4); // initial pose is I
+    Tb2w = Eigen::MatrixXd::Identity(4,4);
 
 	pubLaserCloudLocal = nh.advertise<sensor_msgs::PointCloud2>("/yeti_cloud_local", 100);
 	pubLaserCloudGlobal = nh.advertise<sensor_msgs::PointCloud2>("/yeti_cloud_global", 100);
@@ -233,7 +234,9 @@ int main(int argc, char *argv[])
         ofs << Tmd2(0, 3) << "," << Tmd2(1, 3) << "," << yaw3 << "\n";
 
         // curuent state
-        Tw2b = Tw2b * Tmd_old2new;
+        Tb2w = Tb2w * Tmd_new2old;
+        Tw2b = Tmd_old2new * Tw2b;
+        
         Eigen::Matrix3d currOdomRot = Tw2b.block(0,0,3,3);
         Eigen::Vector3d currOdomEuler = currOdomRot.eulerAngles(0,1,2);
         // Eigen::Vector3d currEulerVec = currOdomRot.eulerAngles(2, 1, 0);
@@ -252,7 +255,7 @@ int main(int argc, char *argv[])
         nav_msgs::Odometry odom;
         odom.header.frame_id = "map";
         odom.child_frame_id = "base_link"; 
-        Eigen::MatrixXd Tb2w = Tw2b.inverse();
+
         Eigen::Matrix3d rot_b2w = Tb2w.block(0,0,3,3);
         Eigen::Vector3d euler_b2w = rot_b2w.eulerAngles(0,1,2);
         double yaw_b2w = euler_b2w(2);

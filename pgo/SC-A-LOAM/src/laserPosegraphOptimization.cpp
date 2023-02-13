@@ -139,6 +139,7 @@ int prev_keyframe = 0;
 
 std::ifstream imu_fd;
 std::list<gtsam::Vector7> imu_list;
+boost::shared_ptr<ros::NodeHandle> nh_ptr;
 
 boost::shared_ptr<gtsam::PreintegratedCombinedMeasurements::Params> imuParams() {
   // We use the sensor specs to build the noise model for the IMU factor.
@@ -285,7 +286,7 @@ void pubPath( void )
     // pub odom and path 
     nav_msgs::Odometry odomAftPGO;
     nav_msgs::Path pathAftPGO;
-    pathAftPGO.header.frame_id = "camera_init";
+    pathAftPGO.header.frame_id = "map";
     mKF.lock(); 
     for (int node_idx=0; node_idx < int(keyframePosesUpdated.size()) - 1; node_idx++) // -1 is just delayed visualization (because sometimes mutexed while adding(push_back) a new one)
     {
@@ -293,7 +294,7 @@ void pubPath( void )
         // const gtsam::Pose3& pose_est = isamCurrentEstimate.at<gtsam::Pose3>(node_idx);
 
         nav_msgs::Odometry odomAftPGOthis;
-        odomAftPGOthis.header.frame_id = "camera_init";
+        odomAftPGOthis.header.frame_id = "map";
         odomAftPGOthis.child_frame_id = "/aft_pgo";
         odomAftPGOthis.header.stamp = ros::Time().fromSec(keyframeTimes.at(node_idx));
         odomAftPGOthis.pose.pose.position.x = pose_est.x;
@@ -307,7 +308,7 @@ void pubPath( void )
         poseStampAftPGO.pose = odomAftPGOthis.pose.pose;
 
         pathAftPGO.header.stamp = odomAftPGOthis.header.stamp;
-        pathAftPGO.header.frame_id = "camera_init";
+        pathAftPGO.header.frame_id = "map";
         pathAftPGO.poses.push_back(poseStampAftPGO);
     }
     mKF.unlock(); 
@@ -323,7 +324,7 @@ void pubPath( void )
     q.setY(odomAftPGO.pose.pose.orientation.y);
     q.setZ(odomAftPGO.pose.pose.orientation.z);
     transform.setRotation(q);
-    br.sendTransform(tf::StampedTransform(transform, odomAftPGO.header.stamp, "camera_init", "/aft_pgo"));
+    br.sendTransform(tf::StampedTransform(transform, odomAftPGO.header.stamp, "map", "/aft_pgo"));
     
 } // pubPath
 
@@ -436,12 +437,12 @@ std::optional<gtsam::Pose3> doICPVirtualRelative( int _loop_kf_idx, int _curr_kf
     // loop verification 
     sensor_msgs::PointCloud2 cureKeyframeCloudMsg;
     pcl::toROSMsg(*cureKeyframeCloud, cureKeyframeCloudMsg);
-    cureKeyframeCloudMsg.header.frame_id = "camera_init";
+    cureKeyframeCloudMsg.header.frame_id = "map";
     pubLoopScanLocal.publish(cureKeyframeCloudMsg);
 
     sensor_msgs::PointCloud2 targetKeyframeCloudMsg;
     pcl::toROSMsg(*targetKeyframeCloud, targetKeyframeCloudMsg);
-    targetKeyframeCloudMsg.header.frame_id = "camera_init";
+    targetKeyframeCloudMsg.header.frame_id = "map";
     pubLoopSubmapLocal.publish(targetKeyframeCloudMsg);
 
     // ICP Settings
@@ -590,9 +591,11 @@ void process_pg()
                     config.mergeSimilarFactors = false;
                     config.connectKeysToFactor = true;
                     config.plotFactorPoints = true;
+                    std::string gtsam_log_dir;
+                    nh_ptr->param("gtsam_log_dir", gtsam_log_dir,std::string("data/MulranDataset/Riverside03/gtsam/"));
                     std::ostringstream ss;
-                    ss << "/home/zotac/Documents/MulranDataset/Riverside01/gtsam/isam_graph_";
-                    ss << init_node_idx << ".dot";
+                    ss << gtsam_log_dir;
+                    ss << "isam_graph_" << init_node_idx << ".dot";
                     std::string file_name = ss.str();
                     gtSAMgraph.saveGraph(file_name, gtsam::Values() ,config);
                     // gtsam::GaussianFactorGraph::shared_ptr gaussian = gtSAMgraph.linearize(initialEstimate);
@@ -626,7 +629,7 @@ void process_pg()
                            >> g_y >> g_z >> a_x >> a_y >> a_z >> m_x >> m_y >> m_z;
                         double imu_stamp = imu_time / 1000000000.0;
                         gtsam::Vector7 imu_data;
-                        imu_data << imu_stamp, a_x, a_y, a_z, g_x, g_y, g_z;
+                        imu_data << imu_stamp, a_x, a_y, a_z, -g_x, -g_y, -g_z;
                         imu_list.push_back(imu_data);
                         if(imu_stamp >= curr_time)
                             break;
@@ -686,9 +689,11 @@ void process_pg()
                     config.mergeSimilarFactors = false;
                     config.connectKeysToFactor = true;
                     config.plotFactorPoints = true;
+                    std::string gtsam_log_dir;
+                    nh_ptr->param("gtsam_log_dir", gtsam_log_dir,std::string("data/MulranDataset/Riverside03/gtsam/"));
                     std::ostringstream ss;
-                    ss << "/home/zotac/Documents/MulranDataset/Riverside01/gtsam/isam_graph_";
-                    ss << curr_node_idx << ".dot";
+                    ss << gtsam_log_dir;
+                    ss << "isam_graph_" << curr_node_idx << ".dot";
                     std::string file_name = ss.str();
                     gtSAMgraph.saveGraph(file_name, gtsam::Values() ,config);
                     // gtsam::GaussianFactorGraph::shared_ptr gaussian = gtSAMgraph.linearize(initialEstimate);
@@ -713,7 +718,9 @@ void process_pg()
 
         // pg opt result
         if(keyframePosesUpdated.size() > prev_keyframe){
-            ofs_tum.open("/home/zotac/Documents/MulranDataset/Riverside01/sensor_data/radar/pgo_result_tum_cen2019.csv", std::ios::out);
+            std::string ofs_tum_name;
+            nh_ptr->param("ofs_tum_name",ofs_tum_name, std::string("data/MulranDataset/Riverside03/sensor_data/radar/pgo_result_tum_cen2019.csv"));
+            ofs_tum.open(ofs_tum_name, std::ios::out);
             for (int node_idx=0; node_idx < int(keyframePosesUpdated.size()) - 1; node_idx++){
                 const Pose6D& pose_est = keyframePosesUpdated.at(node_idx);
                 auto orientation = tf::createQuaternionMsgFromRollPitchYaw(pose_est.roll, pose_est.pitch, pose_est.yaw);
@@ -830,7 +837,7 @@ void pubMap(void)
 
     sensor_msgs::PointCloud2 laserCloudMapPGOMsg;
     pcl::toROSMsg(*laserCloudMapPGO, laserCloudMapPGOMsg);
-    laserCloudMapPGOMsg.header.frame_id = "camera_init";
+    laserCloudMapPGOMsg.header.frame_id = "map";
     pubMapAftPGO.publish(laserCloudMapPGOMsg);
 }
 
@@ -851,12 +858,14 @@ void process_viz_map(void)
 int main(int argc, char **argv)
 {
 	ros::init(argc, argv, "laserPGO");
-	ros::NodeHandle nh;
-
+    nh_ptr = boost::shared_ptr<ros::NodeHandle>(new ros::NodeHandle("~"));
+    ros::NodeHandle &nh = *nh_ptr;
 	nh.param<double>("keyframe_meter_gap", keyframeMeterGap, 2.0); // pose assignment every k frames 
 	nh.param<double>("sc_dist_thres", scDistThres, 0.2); // pose assignment every k frames 
 
-    imu_fd.open("/home/zotac/Documents/MulranDataset/Riverside01/sensor_data/xsens_imu.csv", std::ios::in);
+    std::string imu_csv;
+    nh.param("imu_csv", imu_csv,std::string("data/MulranDataset/Riverside01/sensor_data/xsens_imu.csv"));
+    imu_fd.open(imu_csv, std::ios::in);
 
     ISAM2Params parameters;
     parameters.relinearizeThreshold = 0.01;

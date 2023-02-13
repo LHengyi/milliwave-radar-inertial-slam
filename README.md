@@ -1,5 +1,6 @@
 # navtech-radar-slam
-Radar SLAM: yeti radar odometry + ScanContext-based Loop Closing 
+This fork is based on [navtech-radar-slam](https://github.com/gisbi-kim/navtech-radar-slam) by [Giseop Kim](https://github.com/gisbi-kim).
+The front-end is yeti open source radar odometry, ScanContext is used to detect potential loops and pose-graph optimization optimizaztion update vehicle pose, speed, and IMU bias.
 
 ## What is Navtech-Radar-SLAM? 
 - In this repository, a (minimal) SLAM problem is defeind as **SLAM = Odometry + Loop closing**, and the optimized states are only robot poses along a trajectory.  
@@ -27,7 +28,8 @@ $ catkin_make
 ```
 Second, 
 - [Download a sequence from the MulRan dataset](https://sites.google.com/view/mulran-pr/download) (you need to download polar_oxford_form.zip) 
-- Change [this line in the yeti launch](https://github.com/gisbi-kim/navtech-radar-slam/blob/2921851c0735894d38998ca1a2057af2e8abbfd9/odometry/yeti_radar_odometry/launch/yeti_radar_odometry.launch#L4) to your downloaded and unzipped radar data directory path. 
+- <del> Change [this line in the yeti launch](https://github.com/gisbi-kim/navtech-radar-slam/blob/2921851c0735894d38998ca1a2057af2e8abbfd9/odometry/yeti_radar_odometry/launch/yeti_radar_odometry.launch#L4) to your downloaded and unzipped radar data directory path. </del>
+- put the downloaded data under folder *odometry/yeti_radar_odometry/data/Mulrandataset*, see the [Mulran dataset paper](https://ieeexplore.ieee.org/ieI7/9187508/9196508/0-9197298.pdf) for the exact folder structure
 
 Then, enjoy!
 ```
@@ -38,15 +40,24 @@ $ roslaunch src/navtech-radar-slam/launch/navtech_radar_slam_mulran.launch
 - The examples are from [MulRan dataset](https://sites.google.com/view/mulran-pr/home), which is suitable to evaluate the radar odometry or SLAM algorithm in complex urban sites. 
     - The MulRan dataset provides the oxford-radar-robotcar-radar data format (i.e., meta data such as ray-wise timestamps are imbedded in an radar image, [see details here](https://oxford-robotics-institute.github.io/radar-robotcar-dataset/documentation#radar))
 
-### 1. KAIST 03 of MulRan dataset
+### ● Radar SLAM
+
+#### • KAIST 03 of MulRan dataset
 - [Video (youtube link)](https://www.youtube.com/watch?v=avtIQ8fesgU&t=107s)  
 - Capture:
     <p align="center"><img src="pic/example1.png" width=700></p>
 
-### 2. Riverside 03 of MulRan dataset 
+#### • Riverside 03 of MulRan dataset 
 - [Video (youtube link)](https://youtu.be/-wVfbrtlRAI?t=301)  
 - Capture:
     <p align="center"><img src="pic/example2.png" width=700></p>
+
+### ● Radar-inertial + loop closing SLAM
+#### • Riverside 01 of MulRan dataset
+<p align="center"><img src="pic/Riverside01_imu.png" width=400></p>
+
+#### • Riverside 03 of MulRan dataset
+<p align="center"><img src="pic/Riverside03_imu.png" width=400></p>
 
 ## Related papers 
 If you cite this repository, please consider below papers. 
